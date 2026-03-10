@@ -11,6 +11,7 @@ return view.extend({
 	render: function() {
 		var doctorBody = E('pre', { 'class': 'zc-console' }, [ _('Click Run doctor to collect diagnostics.') ]);
 		var logBody = E('pre', { 'class': 'zc-console' }, [ _('Loading logs...') ]);
+		var opsBody = E('pre', { 'class': 'zc-console' }, [ _('Run an operational command to inspect its output here.') ]);
 
 		function refreshLogs() {
 			return execText('/sbin/logread', []).then(function(output) {
@@ -34,6 +35,15 @@ return view.extend({
 				doctorBody.textContent = (output || '').trim() || _('No doctor output.');
 			}).catch(function(err) {
 				doctorBody.textContent = _('Doctor failed: ') + err;
+			});
+		}
+
+		function runOps(args, emptyText, failurePrefix) {
+			opsBody.textContent = _('Running command...');
+			return execText('/usr/bin/zeroclaw', args).then(function(output) {
+				opsBody.textContent = (output || '').trim() || emptyText;
+			}).catch(function(err) {
+				opsBody.textContent = failurePrefix + err;
 			});
 		}
 
@@ -63,6 +73,39 @@ return view.extend({
 						}, [ _('Refresh logs') ])
 					]),
 					E('div', { 'style': 'margin-top:16px' }, [ doctorBody ])
+				])
+			]),
+			E('div', { 'class': 'zc-panel' }, [
+				E('div', { 'class': 'zc-panel-head' }, [ _('Operational Commands') ]),
+				E('div', { 'class': 'zc-panel-body' }, [
+					E('div', { 'class': 'zc-panel-desc' }, [ _('These commands expose a safe subset of upstream runtime inspection and maintenance operations directly in LuCI.') ]),
+					E('div', {}, [
+						E('button', {
+							'class': 'btn cbi-button cbi-button-action',
+							'click': ui.createHandlerFn(this, function() { return runOps([ 'status' ], _('No status output.'), _('Status failed: ')); })
+						}, [ _('Run status') ]),
+						E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left:8px',
+							'click': ui.createHandlerFn(this, function() { return runOps([ 'channel', 'doctor' ], _('No channel doctor output.'), _('Channel doctor failed: ')); })
+						}, [ _('Channel doctor') ]),
+						E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left:8px',
+							'click': ui.createHandlerFn(this, function() { return runOps([ 'providers' ], _('No provider output.'), _('Providers command failed: ')); })
+						}, [ _('List providers') ]),
+						E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left:8px',
+							'click': ui.createHandlerFn(this, function() { return runOps([ 'config', 'schema' ], _('No config schema output.'), _('Config schema failed: ')); })
+						}, [ _('Config schema') ]),
+						E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left:8px',
+							'click': ui.createHandlerFn(this, function() { return runOps([ 'models', 'refresh' ], _('No model refresh output.'), _('Models refresh failed: ')); })
+						}, [ _('Refresh models') ])
+					]),
+					E('div', { 'style': 'margin-top:16px' }, [ opsBody ])
 				])
 			]),
 			E('div', { 'class': 'zc-panel' }, [

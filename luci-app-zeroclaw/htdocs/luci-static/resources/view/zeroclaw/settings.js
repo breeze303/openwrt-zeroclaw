@@ -39,6 +39,10 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Keep this disabled unless you have reviewed the exposure risk and really want binding beyond localhost.');
 
+		o = s.option(form.Flag, 'require_pairing', _('Require pairing'));
+		o.rmempty = false;
+		o.description = _('Controls the upstream gateway pairing requirement. Keep this enabled unless you have a deliberate reason to relax gateway authentication flow.');
+
 		o = s.option(form.Value, 'workspace', _('Workspace'));
 		o.placeholder = '/var/lib/zeroclaw';
 		o.rmempty = false;
@@ -50,6 +54,15 @@ return view.extend({
 		});
 		o.default = 'info';
 		o.description = _('Recommended default: info. Use debug or trace temporarily while diagnosing issues.');
+
+		s = m.section(form.NamedSection, 'main', 'zeroclaw', _('Model Runtime Defaults'));
+		s.anonymous = true;
+		s.description = _('These values control the default runtime model behavior written into the generated ZeroClaw config.');
+
+		o = s.option(form.Value, 'temperature', _('Default temperature'));
+		o.datatype = 'ufloat';
+		o.placeholder = '0.7';
+		o.description = _('Upstream default model temperature. Typical values are between 0.0 and 2.0.');
 
 		s = m.section(form.NamedSection, 'main', 'zeroclaw', _('Provider Settings'));
 		s.anonymous = true;
@@ -72,6 +85,66 @@ return view.extend({
 		o.password = true;
 		o.rmempty = true;
 		o.description = _('Provider credential used by the generated config. Avoid sharing screenshots or backups with this value exposed.');
+
+		s = m.section(form.NamedSection, 'main', 'zeroclaw', _('Observability Settings'));
+		s.anonymous = true;
+		s.description = _('These options control lightweight runtime visibility and trace capture. Keep them conservative on small OpenWrt devices.');
+
+		o = s.option(form.ListValue, 'observability_backend', _('Observability backend'));
+		[ 'none', 'noop', 'log', 'prometheus', 'otel', 'opentelemetry', 'otlp' ].forEach(function(mode) {
+			o.value(mode);
+		});
+		o.default = 'log';
+		o.description = _('Recommended default here is log. OTel-related backends are upstream-supported but may be excessive for many router deployments.');
+
+		o = s.option(form.ListValue, 'runtime_trace_mode', _('Runtime trace mode'));
+		[ 'none', 'rolling', 'full' ].forEach(function(mode) {
+			o.value(mode);
+		});
+		o.default = 'none';
+		o.description = _('Runtime traces are useful for debugging tool/model failures, but may contain sensitive content.');
+
+		o = s.option(form.Value, 'runtime_trace_path', _('Runtime trace path'));
+		o.placeholder = 'state/runtime-trace.jsonl';
+		o.description = _('Relative paths are resolved under the ZeroClaw workspace.');
+
+		o = s.option(form.Value, 'runtime_trace_max_entries', _('Runtime trace max entries'));
+		o.datatype = 'uinteger';
+		o.placeholder = '200';
+		o.description = _('Used when runtime trace mode is set to rolling.');
+
+		s = m.section(form.NamedSection, 'main', 'zeroclaw', _('Agent Loop Settings'));
+		s.anonymous = true;
+		s.description = _('These settings tune the upstream agent loop budget and history limits. Larger values may increase cost, latency, and memory usage.');
+
+		o = s.option(form.Value, 'agent_max_tool_iterations', _('Max tool iterations'));
+		o.datatype = 'uinteger';
+		o.placeholder = '10';
+		o.description = _('Maximum tool-call loop turns per user message.');
+
+		o = s.option(form.Value, 'agent_max_history_messages', _('Max history messages'));
+		o.datatype = 'uinteger';
+		o.placeholder = '50';
+		o.description = _('Conversation history retention limit per session.');
+
+		o = s.option(form.Flag, 'agent_parallel_tools', _('Enable parallel tools'));
+		o.rmempty = false;
+		o.description = _('Allow the upstream runtime to execute independent tool calls concurrently where supported.');
+
+		s = m.section(form.NamedSection, 'main', 'zeroclaw', _('Memory Settings'));
+		s.anonymous = true;
+		s.description = _('These settings cover the upstream memory backend and whether user-stated facts are persisted automatically.');
+
+		o = s.option(form.ListValue, 'memory_backend', _('Memory backend'));
+		[ 'sqlite', 'lucid', 'markdown', 'none' ].forEach(function(mode) {
+			o.value(mode);
+		});
+		o.default = 'sqlite';
+		o.description = _('Recommended default: sqlite.');
+
+		o = s.option(form.Flag, 'memory_auto_save', _('Enable memory auto save'));
+		o.rmempty = false;
+		o.description = _('Persist user-stated inputs automatically through the selected upstream memory backend.');
 
 		return m.render();
 	}

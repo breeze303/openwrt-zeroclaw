@@ -35,6 +35,14 @@
 			"path": "zeroclaw/settings"
 		}
 	},
+	"admin/services/zeroclaw/mapping": {
+		"title": "Config Mapping",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "zeroclaw/mapping"
+		}
+	},
 	"admin/services/zeroclaw/diagnostics": {
 		"title": "Diagnostics",
 		"order": 30,

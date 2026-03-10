@@ -1,0 +1,174 @@
+name: Build OpenWrt Packages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'zeroclaw/**'
+      - 'luci-app-zeroclaw/**'
+      - '.github/workflows/build-packages.yml'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - arch: x86_64
+            subtarget: 64
+          - arch: aarch64_generic
+            subtarget: generic
+          - arch: arm_cortex-a9
+            subtarget: cortex-a9
+
+    name: Build ${{ matrix.target.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Initialize Environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib \
+            git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev \
+            libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+            libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 \
+            python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+
+      - name: Clone ImmortalWrt Source
+        working-directory: /workdir
+        run: |
+          df -hT $PWD
+          git clone $REPO_URL -b $REPO_BRANCH immortalwrt
+          ln -sf /workdir/immortalwrt $GITHUB_WORKSPACE/immortalwrt
+
+      - name: Update Feeds
+        run: |
+          cd immortalwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy Package to ImmortalWrt
+        run: |
+          mkdir -p immortalwrt/package/openwrt-zeroclaw
+          cp -r zeroclaw immortalwrt/package/openwrt-zeroclaw/
+          cp -r luci-app-zeroclaw immortalwrt/package/openwrt-zeroclaw/
+          cp README.md immortalwrt/package/openwrt-zeroclaw/ || true
+          cp README.zh-CN.md immortalwrt/package/openwrt-zeroclaw/ || true
+
+      - name: Generate Config
+        run: |
+          cd immortalwrt
+          cat > .config <<EOF
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          CONFIG_PACKAGE_zeroclaw=m
+          CONFIG_PACKAGE_luci-app-zeroclaw=m
+          CONFIG_PACKAGE_luci-base=y
+          CONFIG_PACKAGE_rpcd-mod-file=y
+          EOF
+          make defconfig
+
+      - name: Download Package Sources
+        run: |
+          cd immortalwrt
+          make download -j8
+          find dl -size -1024c -exec ls -l {} \;
+          find dl -size -1024c -exec rm -f {} \;
+
+      - name: Compile Packages
+        run: |
+          cd immortalwrt
+          echo -e "$(nproc) thread compile"
+          make package/openwrt-zeroclaw/zeroclaw/compile -j$(nproc) V=s || \
+          make package/openwrt-zeroclaw/zeroclaw/compile -j1 V=s
+          make package/openwrt-zeroclaw/luci-app-zeroclaw/compile -j$(nproc) V=s || \
+          make package/openwrt-zeroclaw/luci-app-zeroclaw/compile -j1 V=s
+
+      - name: Check Compile Result
+        run: |
+          cd immortalwrt
+          echo "=== Checking for compiled packages ==="
+          find bin/packages/ -name "zeroclaw*.ipk" -o -name "luci-app-zeroclaw*.ipk" || echo "No packages found"
+          ls -lh bin/packages/*/base/ || true
+          ls -lh bin/packages/*/luci/ || true
+
+      - name: Organize Files
+        id: organize
+        run: |
+          cd immortalwrt/bin/packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+      - name: Upload Packages to Artifact
+        uses: actions/upload-artifact@v4
+        if: steps.organize.outputs.status == 'success'
+        with:
+          name: zeroclaw-packages-${{ matrix.target.arch }}-${{ env.DATE }}
+          path: ${{ env.FIRMWARE }}
+
+      - name: Generate Release Tag
+        id: tag
+        if: env.UPLOAD_RELEASE == 'true' && github.event_name != 'pull_request'
+        run: |
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload Packages to Release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          files: ${{ env.FIRMWARE }}/*zeroclaw*.ipk
+
+      - name: Clean Up Workflow Runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 7
+          keep_minimum_runs: 3
